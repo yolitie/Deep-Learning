@@ -1,0 +1,118 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "name": "Untitled4.ipynb",
+      "provenance": [],
+      "authorship_tag": "ABX9TyMgl/qJe4LweUfIvwlApIaf",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/yolitie/Deep-Learning/blob/main/TransformerPaBatos\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 1,
+      "metadata": {
+        "id": "dbOCQqCP0-Ss"
+      },
+      "outputs": [],
+      "source": [
+        "#ATTENTION IS ALL YOU NEED\n",
+        "#We have an encoder on the left and on the right a decoder.\n",
+        "#Starting from the bottom we have some input, let´s say some source texte\n",
+        "#We are going to create some embedders. The input is going to be sent to a multi-head attention.\n",
+        "#Then is going to go to a normalization, then to a feed forward and then again to a normalization.\n",
+        "#Decoder Block, transformer block and has an additional masked multi-head and normalization.\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import torch\n",
+        "import torch.nn as nn\n",
+        "\n",
+        "class SelfAttention(nn.Module):\n",
+        "  def __init__(self, embed_size, heads): #In how many parts we split is called heads.\n",
+        "    super(SelfAttention, self).__init__()\n",
+        "    self.embed_size=embed_size\n",
+        "    self.heads=heads\n",
+        "    self.head_dim=embed_size//heads #integer division, sometimes the integer division is not possible so we put an assert\n",
+        "\n",
+        "    assert (self.head_dim*heads==embed_size), \"Embed size needs to be divided by heads\"\n",
+        "\n",
+        "    self.values=nn.Linear(self.head_dim,self.head_dim, bias=False)\n",
+        "    self.keys= nn.Linear(self.head_dim, self.head_dim, bias= False)\n",
+        "    self.queries=nn.Linear(self.head_dim, self.head_dim, bias= False)\n",
+        "    self.fc_out=nn.Linear(heads*self.head_dim, embed_size)\n",
+        "\n",
+        "  def forward(self,values,keys,query,mask):\n",
+        "    N=query.shape[0] #How many examples are we sending at the same time\n",
+        "    value_len, key_len, query_len= values.shape[1],keys.shape[1],query.shape[1]\n",
+        "\n",
+        "    #Split embedding into self.heads pieces\n",
+        "    values=values.reshape(N, value_len,self.heads,self.head_dim)\n",
+        "    keys=keys.reshape(N,key_len,self.heads,self.head_dim)\n",
+        "    queries=query.reshape(N,key_len,self.heads,self.head_dim)\n",
+        "\n",
+        "    energy= torch.einsum(\"nqhd,nkhd--> nhqk\",[queries,keys])\n",
+        "    #queries shape: (N,query_len,heads,heads_dim)\n",
+        "    #keys shape: (N, key_len, heads,heads_dim)\n",
+        "    #energy shape: (N,heads, query_len, key_len) query_len is the target source sentence, and the \n",
+        "#key_len is the is the source sentence. so for each word in our target how much should we pay attention to each word in our input in the source sentence.\n",
+        "\n",
+        "    if mask is not None:\n",
+        "      energy=energy.masked_fill(mask==0,float(\"-1e20\"))\n",
+        "    \n",
+        "    attention=torch.softmax(energy/(self.embed_size**(1/2)),dim=3)\n",
+        "    \n",
+        "    out= torch.einsum(\"nhql,nlhd-->nqhd\",[attention,values]).reshape(N,query_len,self.heads*self.head_dim)\n",
+        "    #attention shape: (N,heads,query_len,key_len)\n",
+        "    #values shape: (N, value_len,heads, heads_dim)\n",
+        "    # after einsum(N, query_len, heads, head_dim)then flatten last two dimensions\n",
+        "    out=self.fc_out(out)\n",
+        "    return out\n",
+        "\n",
+        "class TransformerBlock(nn.Module):\n",
+        "  def __init__(self,embed_size, heads, dropout, forward_expansion):\n",
+        "    super(TransformerBlock,self).__init__()\n",
+        "    self.attention=SelfAttention(embed_size,heads)\n",
+        "    self.norm1=nn.LayerNorm(embed_size)\n",
+        "    self.norm2= nn.LayerNorm(embed_size)\n",
+        "\n",
+        "    self.feed_forward=nn.Sequential(nn.Linear(embed_size,forward_expansion*embed_size),nn.ReLU(),nn.Linear(forward_expansion*embed_size,embed_size))\n",
+        "    self.dropout=nn.Dropout(dropout)\n",
+        "\n",
+        "  def forward(self,value,key,query,mask):\n",
+        "    attention=self.attention(value,key,query,mask)\n",
+        "\n",
+        "    x=self.dropout(self,norm1(attention+query))\n",
+        "    forward= self.feed_forward(x)\n",
+        "    out=self.dropout(self.norm2(forward+x))\n",
+        "    return out\n"
+      ],
+      "metadata": {
+        "id": "KYlzCuz-3Hbz"
+      },
+      "execution_count": null,
+      "outputs": []
+    }
+  ]
+}
